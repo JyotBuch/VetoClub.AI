@@ -31,7 +31,7 @@ class ExtractionTests(unittest.TestCase):
         return updated
 
     def test_valid_dietary_updates_member_and_filters(self) -> None:
-        xml = """<extraction><dietary>vegetarian</dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><confirmed></confirmed><time></time></extraction>"""
+        xml = """<extraction><dietary>vegetarian</dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><venue_confirmed></venue_confirmed><time></time></extraction>"""
         session = self._run_extract(xml, {"text": "I'm vegetarian today"})
 
         member = session.members["Alisha"]
@@ -39,7 +39,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(session.dietary_filters, ["vegetarian"])
 
     def test_cuisine_and_time_updates(self) -> None:
-        xml = """<extraction><dietary></dietary><cuisine_likes>italian</cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><confirmed></confirmed><time>8pm</time></extraction>"""
+        xml = """<extraction><dietary></dietary><cuisine_likes>italian</cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><venue_confirmed></venue_confirmed><time>8pm</time></extraction>"""
         session = self._run_extract(xml, {"text": "Italian works at 8pm"})
 
         member = session.members["Alisha"]
@@ -47,11 +47,11 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(session.time, "8pm")
 
     def test_confirmed_true_updates_member(self) -> None:
-        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><confirmed>true</confirmed><time></time></extraction>"""
+        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><venue_confirmed>true</venue_confirmed><time></time></extraction>"""
         session = self._run_extract(xml, {"sender": "Nidhi", "text": "Count me in"})
 
         member = session.members["Nidhi"]
-        self.assertTrue(member.confirmed)
+        self.assertTrue(member.venue_confirmed)
 
     def test_malformed_xml_returns_empty(self) -> None:
         session = self._run_extract("not xml at all")
@@ -63,7 +63,7 @@ class ExtractionTests(unittest.TestCase):
         session = session_store.get_or_create("group-partial")
         preferences.upsert_member(session, "Sam", {"dietary": ["vegan"]})
         message = {"group_id": "group-partial", "sender": "Sam", "text": "Near Riverwalk"}
-        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location>Riverwalk</location><confirmed></confirmed><time></time></extraction>"""
+        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location>Riverwalk</location><venue_confirmed></venue_confirmed><time></time></extraction>"""
         with patch("server.agent.context.complete", AsyncMock(return_value=xml)):
             updated = asyncio.run(context.extract_and_merge(message, session))
 
@@ -74,7 +74,29 @@ class ExtractionTests(unittest.TestCase):
     def test_trigger_detection_and_stripping(self) -> None:
         self.assertTrue(is_agent_mentioned("find us a place @Agent"))
         self.assertFalse(is_agent_mentioned("yeah Italian works"))
-        self.assertEqual(strip_trigger("find us a place @Agent please"), "find us a place  please")
+        self.assertEqual(strip_trigger("find us a place @Agent please"), "find us a place please")
+
+    def test_dietary_and_dislikes_split(self) -> None:
+        xml = """<extraction><dietary>vegetarian</dietary><cuisine_likes></cuisine_likes><cuisine_dislikes>indian</cuisine_dislikes><location></location><venue_confirmed></venue_confirmed><time></time></extraction>"""
+        session = self._run_extract(xml, {"text": "I'm vegetarian and I can't do Indian food"})
+
+        member = session.members["Alisha"]
+        self.assertEqual(member.dietary, ["vegetarian"])
+        self.assertEqual(member.cuisine_dislikes, ["indian"])
+
+    def test_recent_meal_goes_to_cuisine_dislikes(self) -> None:
+        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes>indian</cuisine_dislikes><location></location><venue_confirmed></venue_confirmed><time></time></extraction>"""
+        session = self._run_extract(xml, {"text": "I just had Indian food"})
+
+        member = session.members["Alisha"]
+        self.assertEqual(member.dietary, [])
+        self.assertEqual(member.cuisine_dislikes, ["indian"])
+
+    def test_venue_confirmed_tag_sets_flag(self) -> None:
+        xml = """<extraction><dietary></dietary><cuisine_likes></cuisine_likes><cuisine_dislikes></cuisine_dislikes><location></location><venue_confirmed>true</venue_confirmed><time></time></extraction>"""
+        session = self._run_extract(xml, {"sender": "Nidhi", "text": "La Italiano works for me"})
+
+        self.assertTrue(session.members["Nidhi"].venue_confirmed)
 
 
 if __name__ == "__main__":

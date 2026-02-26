@@ -21,6 +21,19 @@ class StateLayerTests(unittest.TestCase):
 
         self.assertIs(first, second)
 
+    def test_session_get_delete_clear_helpers(self) -> None:
+        session = session_store.get_or_create("group-utils")
+        self.assertIs(session_store.get("group-utils"), session)
+
+        self.assertFalse(session_store.delete("missing"))
+        self.assertTrue(session_store.delete("group-utils"))
+        self.assertIsNone(session_store.get("group-utils"))
+
+        session_store.get_or_create("group-a")
+        session_store.get_or_create("group-b")
+        session_store.clear()
+        self.assertEqual(session_store.get_all(), [])
+
     def test_upsert_member_creates_and_merges(self) -> None:
         session = session_store.get_or_create("group-merge")
 
@@ -29,7 +42,6 @@ class StateLayerTests(unittest.TestCase):
             "Alex",
             {
                 "dietary": ["vegetarian"],
-                "confirmed": False,
                 "cuisine_likes": ["thai"],
             },
         )

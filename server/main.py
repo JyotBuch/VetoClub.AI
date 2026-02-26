@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from server.agent.context import extract_and_merge
 from server.agent.orchestrator import run_agent
-from server.agent.triggers import is_agent_mentioned
+from server.agent.triggers import is_agent_mentioned, strip_trigger
 from server.imessage.photon_client import send_message
 from server.state.models import GroupSession
 from server.state.session import clear, delete, get, get_all, get_or_create, save
@@ -31,10 +31,12 @@ async def webhook(payload: MessagePayload) -> dict[str, str]:
 
     session = get_or_create(payload.group_id)
 
-    message_entry = payload.model_dump()
+    message_entry = {"sender": payload.sender, "text": payload.text}
     session.append_message(message_entry)
 
-    session = await extract_and_merge(message_entry, session)
+    clean_text = strip_trigger(payload.text)
+    extraction_entry = {"sender": payload.sender, "text": clean_text}
+    session = await extract_and_merge(extraction_entry, session)
     save(session)
 
     if is_agent_mentioned(payload.text):

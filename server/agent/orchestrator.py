@@ -1,8 +1,9 @@
 """Active agent orchestration for LetsPlanIt."""
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from server.agent.resolver import resolve_full_state
 from server.agent.session_utils import build_history, session_to_xml
@@ -10,12 +11,91 @@ from server.agent.triggers import strip_trigger
 from server.llm.groq_client import complete
 from server.state.models import GroupSession
 from server.state.session import save
+from server.tools import (
+    create_group_event,
+    estimate_uber_fare,
+    find_venues,
+    geocode_location,
+    get_travel_times,
+)
 
 LOGGER = logging.getLogger(__name__)
 AGENT_MODEL = "llama-3.3-70b-versatile"
 FALLBACK_REPLY = "Sorry, something went wrong. Try again in a moment."
 
-SYSTEM_PROMPT = """You are LetsPlanIt, an AI group outing planner living inside this iMessage group chat.
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "find_venues",
+            "description": "Search for restaurants matching group cuisine, dietary needs, vibe, and all member location constraints. Call this when asked to find places.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cuisine": {"type": "string", "description": "e.g. 'italian', 'thai'"},
+                    "vibe": {"type": "string", "description": "e.g. 'chill dinner', 'upscale'"},
+                    "dietary_filters": {"type": "array", "items": {"type": "string"}},
+                    "party_size": {"type": "integer"},
+                    "location_constraints": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "member": {"type": "string"},
+                                "location": {"type": "string"},
+                                "max_distance_mins": {"type": "integer"},
+                            },
+                            "required": ["member", "location", "max_distance_mins"],
+                        },
+                    },
+                },
+                "required": ["cuisine", "party_size", "location_constraints"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_uber_estimate",
+            "description": "Estimate Uber fare for a specific member from their location to the selected venue. Only call when a member explicitly asks about fare.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "member_name": {"type": "string"},
+                    "pickup_location": {"type": "string"},
+                    "destination_address": {"type": "string"},
+                    "budget_cap": {
+                        "type": "integer",
+                        "description": "null if no budget mentioned",
+                    },
+                },
+                "required": ["member_name", "pickup_location", "destination_address"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_group_event",
+            "description": "Create a Google Calendar event for the group dinner. Only call when can_book is true — all members venue_confirmed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "venue_name": {"type": "string"},
+                    "venue_address": {"type": "string"},
+                    "time_str": {"type": "string"},
+                    "date_str": {"type": "string"},
+                    "party_size": {"type": "integer"},
+                    "dietary_notes": {"type": "array", "items": {"type": "string"}},
+                    "group_id": {"type": "string"},
+                },
+                "required": ["venue_name", "venue_address", "time_str", "date_str", "party_size", "group_id"],
+            },
+        },
+    },
+]
+
+SYSTEM_PROMPT_STATIC = """You are LetsPlanIt, an AI group outing planner living inside this iMessage group chat.
 
 ## Persona
 You're friendly, efficient, and on it — like a well-connected friend who actually follows through. You speak casually but stay crisp. This is a chat, not a newsletter.
@@ -48,7 +128,128 @@ Conversation history (last 20 messages):
 - **Presenting options:** Short labeled list (max 4 options), each with 1-line rationale tied to known preferences.
 - **Waiting on people:** Name them. One sentence on what's needed from them.
 - **Ready to book:** Summarize the plan in ≤3 lines, then ask for final go-ahead if `can_book` is true.
+
+## Tool Usage Rules
+- Call find_venues when asked to search for restaurants. Always pass:
+  - cuisine from session
+  - all location_constraints from session (never drop any member's constraint)
+  - dietary_filters from session
+  - party_size = number of members in session
+- Present venue results as a numbered list 1–5 with name, rating, price, distance, and one-line vibe description. Members will refer to options by number or name in follow-up messages.
+- If SearchResult.constraints_met is false, lead with the conflict_reason before showing any results. Never silently drop a member's constraint.
+- Call get_uber_estimate only when a specific member asks about their fare. Use their member.location as pickup. Always mention if estimate exceeds budget_cap. Always include the \"Estimate based on distance\" note in your reply.
+- Call create_group_event only when <can_book>true</can_book>. Never call it speculatively or before all members are venue_confirmed. After booking, share the calendar event URL with the group.
+- When a member says \"option 2\", \"the second one\", \"that first place\" — resolve against venue_options list from session (0-indexed).
 """
+
+SYSTEM_PROMPT_DYNAMIC = """
+Current group state:
+<session>
+{session_xml}
+</session>
+
+Conversation history (last 20 messages):
+<history>
+{history}
+</history>
+"""
+
+
+async def execute_tool(name: str, arguments: str, session: GroupSession) -> Tuple[Dict[str, Any], GroupSession]:
+    """Execute a tool call and update session state accordingly."""
+
+    try:
+        args = json.loads(arguments or "{}")
+    except json.JSONDecodeError:
+        return {"error": "Invalid tool arguments"}, session
+
+    if name == "find_venues":
+        result = await find_venues(**args)
+        session.venue_options = result.venues
+        if result.venues:
+            session.state = "awaiting_confirmation"
+        return result.model_dump(), session
+
+    if name == "get_uber_estimate":
+        pickup = args.get("pickup_location")
+        destination = args.get("destination_address")
+        budget_cap = args.get("budget_cap")
+        if budget_cap is None:
+            budget_cap = session.uber_budget_cap
+
+        pickup_coords = await geocode_location(pickup or "")
+        destination_coords = await geocode_location(destination or "")
+        if pickup_coords and destination_coords:
+            travel_times = await get_travel_times(pickup_coords, [destination or ""])
+            duration = travel_times[0] if travel_times else None
+            if not duration:
+                duration = 20
+            distance_meters = duration * 60 * 8  # rough conversion at 8 m/s
+            result = estimate_uber_fare(distance_meters, duration, budget_cap)
+        else:
+            result = {"message": "Could not estimate fare — location not found", "error": True}
+        return result, session
+
+    if name == "create_group_event":
+        result = await create_group_event(**args)
+        if result.get("event_id"):
+            session.calendar_event_id = result.get("event_id")
+            session.calendar_event_url = result.get("event_url")
+            session.state = "booked"
+        return result, session
+
+    return {"error": f"Unknown tool: {name}"}, session
+
+
+async def run_tool_loop(
+    initial_response: Any,
+    messages: List[Dict[str, Any]],
+    session: GroupSession,
+    max_iterations: int = 5,
+) -> Tuple[str, GroupSession]:
+    """Execute tool calls until completion."""
+
+    response = initial_response
+    for _ in range(max_iterations):
+        if not getattr(response.choices[0], "finish_reason", None) == "tool_calls":
+            final_message = getattr(response.choices[0].message, "content", "") or ""
+            return final_message, session
+
+        assistant_message = response.choices[0].message
+        tool_calls = getattr(assistant_message, "tool_calls", []) or []
+        messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ],
+            }
+        )
+
+        for tc in tool_calls:
+            result, session = await execute_tool(tc.function.name, tc.function.arguments, session)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
+
+        save(session)
+        response = await complete(
+            model=AGENT_MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=300,
+            tools=TOOLS,
+            tool_choice="auto",
+            return_response=True,
+        )
+
+    final_choice = response.choices[0]
+    final_content = getattr(final_choice.message, "content", "") or ""
+    return final_content, session
 
 
 async def run_agent(text: str, session: GroupSession) -> str:
@@ -63,22 +264,27 @@ async def run_agent(text: str, session: GroupSession) -> str:
 
     session_xml = session_to_xml(session)
     history_text = build_history(session.message_history)
-    system_content = SYSTEM_PROMPT.format(session_xml=session_xml, history=history_text)
+    context_block = SYSTEM_PROMPT_DYNAMIC.format(session_xml=session_xml, history=history_text)
 
     messages = [
-        {"role": "system", "content": system_content},
+        {"role": "system", "content": SYSTEM_PROMPT_STATIC},
+        {"role": "system", "content": context_block},
         {"role": "user", "content": user_text},
     ]
 
     try:
-        raw_response = await complete(
+        initial_response = await complete(
             model=AGENT_MODEL,
             messages=messages,
             temperature=0.3,
+            max_tokens=300,
+            tools=TOOLS,
+            tool_choice="auto",
+            return_response=True,
         )
-        reply = raw_response.strip() or FALLBACK_REPLY
+        reply, session = await run_tool_loop(initial_response, messages, session)
     except Exception as exc:  # pragma: no cover - defensive guard
         LOGGER.exception("Active agent failed: %s", exc)
         return FALLBACK_REPLY
 
-    return reply
+    return reply or FALLBACK_REPLY

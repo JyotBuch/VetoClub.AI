@@ -32,7 +32,8 @@ htmlcov/
 .pyre/
 scripts
 *.json
-*test*
+tests/
+test/
 
 # Node / TypeScript artifacts
 node_modules/

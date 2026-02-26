@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from server.agent import orchestrator
-from server.agent.orchestrator import run_agent, session_to_xml
+from server.agent.orchestrator import run_agent
+from server.agent.session_utils import session_to_xml
 from server.main import MessagePayload, webhook
 from server.state import preferences
 from server.state import session as session_store
@@ -19,8 +20,8 @@ class OrchestratorTests(unittest.TestCase):
 
     def _session_with_members(self) -> GroupSession:
         session = session_store.get_or_create("group-1")
-        preferences.upsert_member(session, "Johi", {"confirmed": True, "dietary": ["vegetarian"]})
-        preferences.upsert_member(session, "Nidhi", {"confirmed": False})
+        preferences.upsert_member(session, "Johi", {"venue_confirmed": True, "dietary": ["vegetarian"]})
+        preferences.upsert_member(session, "Nidhi", {"venue_confirmed": False})
         return session
 
     def test_session_to_xml_contains_members_and_can_book_false(self) -> None:
@@ -33,7 +34,7 @@ class OrchestratorTests(unittest.TestCase):
 
     def test_session_to_xml_can_book_true_when_ready(self) -> None:
         session = self._session_with_members()
-        preferences.upsert_member(session, "Nidhi", {"confirmed": True})
+        preferences.upsert_member(session, "Nidhi", {"venue_confirmed": True})
         session.selected_venue = {"name": "Spot"}
 
         xml = session_to_xml(session)
@@ -44,9 +45,13 @@ class OrchestratorTests(unittest.TestCase):
         xml = session_to_xml(session)
         self.assertIn("<members", xml)
 
+    @patch("server.agent.orchestrator.run_tool_loop", new_callable=AsyncMock)
+    @patch("server.agent.orchestrator.resolve_full_state", new_callable=AsyncMock)
     @patch("server.agent.orchestrator.complete", new_callable=AsyncMock)
-    def test_run_agent_strips_trigger(self, mock_complete: AsyncMock) -> None:
-        mock_complete.return_value = "Reply"
+    def test_run_agent_strips_trigger(self, mock_complete: AsyncMock, mock_resolve: AsyncMock, mock_loop: AsyncMock) -> None:
+        mock_complete.return_value = object()
+        mock_loop.return_value = ("Reply", self._session_with_members())
+        mock_resolve.return_value = self._session_with_members()
         session = self._session_with_members()
         session.message_history.append({"sender": "Johi", "text": "Hello"})
 
@@ -56,16 +61,24 @@ class OrchestratorTests(unittest.TestCase):
         user_message = called_messages[1]["content"]
         self.assertNotIn("@Agent", user_message)
 
+    @patch("server.agent.orchestrator.run_tool_loop", new_callable=AsyncMock)
+    @patch("server.agent.orchestrator.resolve_full_state", new_callable=AsyncMock)
     @patch("server.agent.orchestrator.complete", new_callable=AsyncMock)
-    def test_run_agent_returns_reply_text(self, mock_complete: AsyncMock) -> None:
-        mock_complete.return_value = "Done"
+    def test_run_agent_returns_reply_text(
+        self, mock_complete: AsyncMock, mock_resolve: AsyncMock, mock_loop: AsyncMock
+    ) -> None:
+        mock_complete.return_value = object()
+        mock_loop.return_value = ("Done", self._session_with_members())
+        mock_resolve.return_value = self._session_with_members()
         session = self._session_with_members()
         reply = asyncio.run(run_agent("@Agent help", session))
         self.assertEqual(reply, "Done")
 
+    @patch("server.agent.orchestrator.resolve_full_state", new_callable=AsyncMock)
     @patch("server.agent.orchestrator.complete", new_callable=AsyncMock)
-    def test_run_agent_handles_exception(self, mock_complete: AsyncMock) -> None:
+    def test_run_agent_handles_exception(self, mock_complete: AsyncMock, mock_resolve: AsyncMock) -> None:
         mock_complete.side_effect = RuntimeError("boom")
+        mock_resolve.return_value = self._session_with_members()
         session = self._session_with_members()
         reply = asyncio.run(run_agent("@Agent help", session))
         self.assertEqual(reply, orchestrator.FALLBACK_REPLY)

@@ -22,6 +22,31 @@ class MemberPreference(BaseModel):
     venue_confirmed: bool = False
 
 
+class LocationConstraint(BaseModel):
+    member: str
+    location: str
+    max_distance_mins: int = 30
+
+
+class VenueOption(BaseModel):
+    name: str
+    address: str
+    rating: float
+    price: str
+    distance_mins: int
+    yelp_url: str
+    coordinates: Dict[str, float]
+    vegetarian_friendly: bool = False
+    vegan_friendly: bool = False
+
+
+class SearchResult(BaseModel):
+    venues: list[VenueOption]
+    constraints_met: bool
+    conflict_reason: Optional[str] = None
+    compromised_constraints: list[str] = Field(default_factory=list)
+
+
 class GroupSession(BaseModel):
     """In-memory representation of a group's planning session."""
 
@@ -42,8 +67,13 @@ class GroupSession(BaseModel):
     time: Optional[str] = None
     location_anchor: Optional[str] = None
     max_distance_mins: int = 30
+    location_constraints: list[LocationConstraint] = Field(default_factory=list)
     dietary_filters: list[str] = Field(default_factory=list)
+    venue_options: list[VenueOption] = Field(default_factory=list)
     selected_venue: Optional[Dict[str, Any]] = None
+    uber_budget_cap: Optional[int] = None
+    calendar_event_id: Optional[str] = None
+    calendar_event_url: Optional[str] = None
     message_history: list[Dict[str, Any]] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

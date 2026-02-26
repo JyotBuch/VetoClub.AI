@@ -46,6 +46,27 @@ def session_to_xml(session: GroupSession) -> str:
     if isinstance(session.selected_venue, dict):
         selected_name = session.selected_venue.get("name") or ""
 
+    constraints_xml = "".join(
+        [
+            f"<constraint><member>{escape(c.member)}</member>"
+            f"<location>{escape(c.location)}</location>"
+            f"<max_distance_mins>{c.max_distance_mins}</max_distance_mins></constraint>"
+            for c in session.location_constraints
+        ]
+    )
+
+    option_entries = []
+    for index, option in enumerate(session.venue_options, start=1):
+        veg_tag = "veg ✓" if option.vegetarian_friendly else ""
+        option_text = (
+            f"{option.name} · {option.rating}★ · {option.price or ''} · "
+            f"{option.distance_mins}min · {veg_tag}"
+        )
+        option_entries.append(f"<option index='{index}'>{escape(option_text)}</option>")
+    options_xml = "".join(option_entries)
+
+    party_size = len({entry.get("sender") for entry in session.message_history if entry.get("sender")})
+
     group_xml = [
         "<group>",
         _tag("state", session.state),
@@ -55,9 +76,13 @@ def session_to_xml(session: GroupSession) -> str:
         _tag("location_anchor", session.location_anchor),
         _tag("selected_venue", selected_name),
         f"  <dietary_filters>{dietary_filters}</dietary_filters>",
+        f"  <location_constraints>{constraints_xml}</location_constraints>",
+        f"  <venue_options>{options_xml}</venue_options>",
+        _tag("calendar_event_url", session.calendar_event_url),
         members_block,
         f"  <can_book>{str(can_book).lower()}</can_book>",
         f"  <pending_confirmations>{pending_csv}</pending_confirmations>",
+        f"  <party_size>{party_size}</party_size>",
         "</group>",
     ]
     return "\n".join(group_xml)
