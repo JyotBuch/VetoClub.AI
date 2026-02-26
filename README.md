@@ -122,20 +122,20 @@ Group Chat                          LetsPlanIt Agent
 ──────────                          ───────────────
 Jyot:  "Guys we should do something tonight!"
 Nidhi: "I don't mind Indian food actually!"
-Johi:  "Yeah Indian works for me too!"          → [silent extraction: cuisine=indian]
+Juhi:  "Yeah Indian works for me too!"          → [silent extraction: cuisine=indian]
 Alisha:"Actually can we do Italian?             → [silent extraction: dislikes=indian,
         I just had Indian food :("                 likes=italian]
 Nidhi: "I'm good with Italian"                  → [silent extraction: likes=italian]
-Johi:  "Yeah let's do it tonight at 8!"         → [silent extraction: time=8pm]
+Juhi:  "Yeah let's do it tonight at 8!"         → [silent extraction: time=8pm]
 Nidhi: "find Italian places in Chicago
         with a chill vibe @Agent"                ──→ ACTIVE MODE (Yelp + Maps)
 Alisha:"I'm vegetarian today, pls only veg @Agent" → filters update + re-search
 Jyot:  "La Italiano works for me"
 Alisha:"Yeah I'm good with that option too"
-Jyot:  "Confirm for us @Agent"                  ──→ needs Johi + Nidhi ✅
+Jyot:  "Confirm for us @Agent"                  ──→ needs Juhi + Nidhi ✅
 Nidhi: "Works for me"
-Johi:  "How much is Uber from Riverwalk? @Agent"→ ride estimate $28
-Johi:  "Cool, make the reservation @Agent"      ──→ reservation + calendar link 🎉
+Juhi:  "How much is Uber from Riverwalk? @Agent"→ ride estimate $28
+Juhi:  "Cool, make the reservation @Agent"      ──→ reservation + calendar link 🎉
 ```
 
 ---
@@ -239,7 +239,7 @@ idle
                      └─► booked ──────────────────────► idle
 ```
 
-The agent **never books** until every member has `venue_confirmed=true`. If someone hasn't responded, the agent surfaces it — *"still waiting to hear from Johi & Nidhi"* — and holds.
+The agent **never books** until every member has `venue_confirmed=true`. If someone hasn't responded, the agent surfaces it — *"still waiting to hear from Juhi & Nidhi"* — and holds.
 
 ---
 
