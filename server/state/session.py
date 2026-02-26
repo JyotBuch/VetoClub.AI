@@ -1,7 +1,7 @@
 """Simple in-memory session store for LetsPlanIt."""
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .models import GroupSession
 
@@ -33,3 +33,24 @@ def get_all() -> List[GroupSession]:
     """Return all known sessions."""
 
     return list(_sessions.values())
+
+
+def get(group_id: str) -> Optional[GroupSession]:
+    """Fetch a session without creating it."""
+
+    return _sessions.get(group_id)
+
+
+def delete(group_id: str) -> bool:
+    """Delete a session if it exists."""
+
+    if group_id in _sessions:
+        del _sessions[group_id]
+        return True
+    return False
+
+
+def clear() -> None:
+    """Remove all sessions from the in-memory store."""
+
+    _sessions.clear()

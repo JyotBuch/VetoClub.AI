@@ -239,10 +239,10 @@ MOCK_CONFIRMATION_CODE = "LPI-8842"
 class GroupSession:
     def __init__(self):
         self.members = {
-            "Jyot":  {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "confirmed": False},
-            "Nidhi": {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "confirmed": False},
-            "Johi":  {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "confirmed": False},
-            "Alisha":{"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "confirmed": False},
+            "Jyot":  {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "venue_confirmed": False},
+            "Nidhi": {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "venue_confirmed": False},
+            "Johi":  {"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "venue_confirmed": False},
+            "Alisha":{"dietary": [], "cuisine_likes": [], "cuisine_dislikes": [], "venue_confirmed": False},
         }
         self.state = "idle"
         self.cuisine = None
@@ -361,20 +361,20 @@ async def run_demo():
     session.selected = veg_results[0]  # La Italiano
 
     chat_msg("Jyot",  '"La Italiano" works for me')
-    agent_thinking("Silent extraction → Jyot: confirmed=True")
-    session.members["Jyot"]["confirmed"] = True
+    agent_thinking("Silent extraction → Jyot: venue_confirmed=True")
+    session.members["Jyot"]["venue_confirmed"] = True
 
     chat_msg("Alisha","Yeah I'm good with that option too")
-    agent_thinking("Silent extraction → Alisha: confirmed=True")
-    session.members["Alisha"]["confirmed"] = True
+    agent_thinking("Silent extraction → Alisha: venue_confirmed=True")
+    session.members["Alisha"]["venue_confirmed"] = True
 
     chat_msg("Jyot",  "Confirm that option for us @Agent")
     agent_thinking("Checking confirmations: Jyot ✓  Alisha ✓  Johi ✗  Nidhi ✗")
     chat_msg("Agent", "Just waiting to hear from Johi & Nidhi 👀")
 
     chat_msg("Nidhi", "Works for me!")
-    agent_thinking("Silent extraction → Nidhi: confirmed=True")
-    session.members["Nidhi"]["confirmed"] = True
+    agent_thinking("Silent extraction → Nidhi: venue_confirmed=True")
+    session.members["Nidhi"]["venue_confirmed"] = True
 
     # ── Scene 5: Uber check ────────────────────────────────────────────────
     console.print("\n[bold dim]── Scene 5: Uber estimate ──[/bold dim]\n")
@@ -385,9 +385,9 @@ async def run_demo():
     chat_msg("Agent", f"For the current choice, your Uber would cost you ${MOCK_UBER_FARE} 🚗")
 
     chat_msg("Johi",  "Cool, make the reservation @Agent")
-    agent_thinking("Silent extraction → Johi: confirmed=True")
-    session.members["Johi"]["confirmed"] = True
-    agent_thinking("All 4 members confirmed ✓ → calling OpenTable")
+    agent_thinking("Silent extraction → Johi: venue_confirmed=True")
+    session.members["Johi"]["venue_confirmed"] = True
+    agent_thinking("All 4 members venue-confirmed ✓ → calling OpenTable")
     time.sleep(0.8)
 
     # ── Scene 6: Booked! ──────────────────────────────────────────────────
@@ -404,12 +404,12 @@ async def run_demo():
 
     # ── Final state printout ───────────────────────────────────────────────
     console.print()
-    confirmed = [n for n, p in session.members.items() if p["confirmed"]]
+    confirmed = [n for n, p in session.members.items() if p["venue_confirmed"]]
     console.print(Panel(
         "[bold green]✅ Demo Complete[/bold green]\n\n"
         "[dim]Final group state:[/dim]\n"
         + "\n".join([
-            f"  [cyan]{name}[/cyan]  confirmed={'[green]✓[/green]' if p['confirmed'] else '[red]✗[/red]'}  "
+            f"  [cyan]{name}[/cyan]  venue_confirmed={'[green]✓[/green]' if p['venue_confirmed'] else '[red]✗[/red]'}  "
             f"dietary={p['dietary'] or '-'}  likes={p['cuisine_likes'] or '-'}"
             for name, p in session.members.items()
         ]) +
@@ -432,11 +432,11 @@ idle
  └─► gathering          ← first "we should do X" message
       └─► searching     ← @Agent invoked with a task
            └─► awaiting_confirmation   ← results shown to group
-                └─► booking           ← all members confirmed
+                └─► booking           ← all members venue-confirmed
                      └─► booked ──────────────────────► idle
 ```
 
-The agent **never books** until every member in `pending_confirmations` has explicitly agreed. If someone hasn't responded, the agent surfaces it — *"still waiting to hear from Johi & Nidhi"* — and holds.
+The agent **never books** until every member has `venue_confirmed=true`. If someone hasn't responded, the agent surfaces it — *"still waiting to hear from Johi & Nidhi"* — and holds.
 
 ---
 

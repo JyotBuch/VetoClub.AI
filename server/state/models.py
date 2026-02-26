@@ -19,7 +19,7 @@ class MemberPreference(BaseModel):
     cuisine_likes: list[str] = Field(default_factory=list)
     cuisine_dislikes: list[str] = Field(default_factory=list)
     location: Optional[str] = None
-    confirmed: bool = False
+    venue_confirmed: bool = False
 
 
 class GroupSession(BaseModel):
@@ -43,7 +43,6 @@ class GroupSession(BaseModel):
     location_anchor: Optional[str] = None
     max_distance_mins: int = 30
     dietary_filters: list[str] = Field(default_factory=list)
-    pending_confirmations: list[str] = Field(default_factory=list)
     selected_venue: Optional[Dict[str, Any]] = None
     message_history: list[Dict[str, Any]] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

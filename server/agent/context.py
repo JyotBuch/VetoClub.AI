@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
@@ -15,7 +16,11 @@ MODEL_NAME = "llama-3.1-8b-instant"
 EXTRACTION_SYSTEM_PROMPT = (
     "You are an extraction engine for group chat planning. "
     "Return ONLY the XML block exactly as specified. No prose, no markdown. "
-    "If a field is unknown leave it empty. Values inside tags must be comma-separated without extra text."
+    "If a field is unknown leave it empty. Values inside tags must be comma-separated without extra text. "
+    "`dietary` is strictly for food restrictions/allergies (vegetarian, vegan, halal, kosher, gluten-free, nut-free, dairy-free). "
+    "Dislikes, recent meals, or cuisine preferences belong in cuisine_dislikes/cuisine_likes, never dietary. "
+    "If the sender pivots away from a previous cuisine (\"actually can we do Italian? I just had Indian food\"), "
+    "record the old cuisine in cuisine_dislikes and the new one in cuisine_likes; do not carry the old cuisine forward as a like."
 )
 
 XML_TEMPLATE = (
@@ -97,33 +102,15 @@ def parse_extraction(raw: str) -> Dict[str, Any]:
         confirmed = False
     else:
         confirmed = None
-    data["confirmed"] = confirmed
+    data["venue_confirmed"] = confirmed
 
     return data
-
-
-def _merge_session_dietary(session: GroupSession, values: List[str]) -> None:
-    if not values:
-        return
-
-    seen: set[str] = set()
-    merged: List[str] = []
-    for item in session.dietary_filters:
-        normalized = item.strip()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            merged.append(normalized)
-    for item in values:
-        normalized = item.strip()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            merged.append(normalized)
-    session.dietary_filters = merged
 
 
 async def extract_and_merge(msg: Dict[str, Any], session: GroupSession) -> GroupSession:
     """Call Groq silently and merge the extracted data into the session."""
 
+    LOGGER.debug("[extract] processing message from %s", msg.get("sender"))
     sender = msg.get("sender")
     text = msg.get("text", "")
     if not sender or not text:
@@ -157,12 +144,22 @@ async def extract_and_merge(msg: Dict[str, Any], session: GroupSession) -> Group
     location = extracted.get("location")
     if location:
         updates["location"] = location
-    confirmed = extracted.get("confirmed")
+    confirmed = extracted.get("venue_confirmed")
     if confirmed is not None:
-        updates["confirmed"] = confirmed
+        updates["venue_confirmed"] = confirmed
 
     if updates:
         preferences.upsert_member(session, sender, updates)
+        if not session.cuisine:
+            tally: Counter[str] = Counter()
+            for pref in session.members.values():
+                for like in pref.cuisine_likes:
+                    if like:
+                        tally[like.lower()] += 1
+            if tally:
+                cuisine, count = tally.most_common(1)[0]
+                if count >= 3:
+                    session.cuisine = cuisine
 
     time_value = extracted.get("time")
     if time_value:
@@ -170,8 +167,6 @@ async def extract_and_merge(msg: Dict[str, Any], session: GroupSession) -> Group
     if location:
         session.location_anchor = location
 
-    dietary_values = extracted.get("dietary") or []
-    if dietary_values:
-        _merge_session_dietary(session, dietary_values)
+    session.dietary_filters = preferences.merge_dietary(session)
 
     return session

@@ -76,7 +76,7 @@ class GroupSession(BaseModel):
     location_anchor: Optional[str] = None
     max_distance_mins: int = 30
     dietary_filters: list[str] = []
-    pending_confirmations: list[str] = []
+    # pending confirmations removed in later layers (derived via helper)
     selected_venue: Optional[dict] = None
     message_history: list[dict] = []   # last N messages for LLM context
     last_updated: datetime = Field(default_factory=datetime.now)
@@ -195,7 +195,7 @@ server/main.py     ← update webhook handler
 ### Acceptance criteria
 - [ ] Send "I'm vegetarian" in group → `session.members["Sender"].dietary == ["vegetarian"]`
 - [ ] Send "let's do Italian" → `session.members["Sender"].cuisine_likes == ["italian"]`
-- [ ] Send "works for me" → `session.members["Sender"].confirmed == True`
+- [ ] Send "works for me" → `session.members["Sender"].venue_confirmed == True`
 - [ ] `@Agent` mention detected correctly, not detected in normal messages
 - [ ] No reply is sent to the chat during silent extraction
 

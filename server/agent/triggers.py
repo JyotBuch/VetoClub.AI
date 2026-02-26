@@ -1,6 +1,8 @@
 """Trigger utilities for detecting @Agent mentions."""
 from __future__ import annotations
 
+import re
+
 AGENT_TRIGGERS = ["@agent", "@Agent", "@AGENT"]
 
 
@@ -20,4 +22,4 @@ def strip_trigger(text: str) -> str:
     cleaned = text
     for trigger in AGENT_TRIGGERS:
         cleaned = cleaned.replace(trigger, "")
-    return cleaned.strip()
+    return re.sub(r"\s{2,}", " ", cleaned).strip()

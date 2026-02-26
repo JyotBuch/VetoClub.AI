@@ -18,6 +18,7 @@ build/
 # Virtual environments
 .env
 .env.*
+*.env
 venv/
 .venv/
 .envrc
@@ -29,6 +30,9 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 .pyre/
+scripts
+*.json
+*test*
 
 # Node / TypeScript artifacts
 node_modules/
