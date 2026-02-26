@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+groq
+fastmcp
+sqlmodel
+redis
+pydantic
+httpx
+rich
