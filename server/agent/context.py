@@ -6,12 +6,13 @@ from collections import Counter
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
+from server.config import SMALL_MODEL
 from server.llm.groq_client import complete
 from server.state import preferences
 from server.state.models import GroupSession, LocationConstraint
 
 LOGGER = logging.getLogger(__name__)
-MODEL_NAME = "llama-3.1-8b-instant"
+MODEL_NAME = SMALL_MODEL
 
 EXTRACTION_SYSTEM_PROMPT = (
     "You are an extraction engine for group chat planning. "
@@ -177,7 +178,7 @@ async def extract_and_merge(msg: Dict[str, Any], session: GroupSession) -> Group
             model=MODEL_NAME,
             messages=messages,
             temperature=0,
-            max_tokens=150,
+            max_tokens=1024,
         )
         extracted = parse_extraction(raw_response)
     except Exception as exc:  # pragma: no cover - defensive guard

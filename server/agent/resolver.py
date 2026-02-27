@@ -6,12 +6,13 @@ from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
 from server.agent.session_utils import build_history, session_to_xml
+from server.config import THINKING_MODEL
 from server.llm.groq_client import complete
 from server.state import preferences
 from server.state.models import GroupSession, LocationConstraint
 
 LOGGER = logging.getLogger(__name__)
-MODEL_NAME = "llama-3.3-70b-versatile"
+MODEL_NAME = THINKING_MODEL
 VALID_STATES = {"idle", "gathering", "searching", "awaiting_confirmation", "booking", "booked"}
 
 SYSTEM_MESSAGE = (
@@ -252,7 +253,7 @@ async def resolve_full_state(session: GroupSession) -> GroupSession:
             model=MODEL_NAME,
             messages=messages,
             temperature=0.2,
-            max_tokens=400,
+            max_tokens=1024,
         )
         snapshot = _parse_response(raw_response)
     except Exception as exc:  # pragma: no cover

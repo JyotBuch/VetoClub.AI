@@ -98,14 +98,11 @@ async function onPhotonMessage(message: any) {
 async function forwardToAgent(message: IncomingMessage) {
   try {
     const payload = {
-      message: {
-        chatGuid: message.chatId,
-        text: message.text,
-        senderDisplayName: message.senderName,
-        sender: message.senderName,
-        isFromMe: message.isFromMe
-      },
-      source: 'photon_sdk'
+      group_id: message.chatId,
+      sender: message.senderName,
+      text: message.text,
+      timestamp: message.timestamp.toISOString(),
+      is_self: message.isFromMe
     };
 
     const controller = new AbortController();
