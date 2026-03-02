@@ -8,6 +8,10 @@ No forms. No apps. Just the chat you're already in.
 
 ---
 
+![LetsPlanIt in action](images/app.png)
+
+---
+
 ## How It Works
 
 LetsPlanIt runs two parallel loops on every message:

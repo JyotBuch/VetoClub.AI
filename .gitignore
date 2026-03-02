@@ -64,3 +64,6 @@ pnpm-debug.log*
 
 # Local state overrides
 server/state/__pycache__/
+
+
+# Markdown Files
