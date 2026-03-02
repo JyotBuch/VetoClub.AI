@@ -1,328 +1,270 @@
-# 🍽️ LetsPlanIt
+# LetsPlanIt
 
-> A conversation-context-aware group outing planner that lives inside your iMessage group chat.
+**An AI group-chat concierge that turns casual iMessage threads into confirmed dinner plans.**
 
-LetsPlanIt is an AI concierge that **silently listens** to your group’s vibe, remembers every preference, and springs into action the moment someone tags `@Agent`. It handles the whole loop — search, dietary checks, Uber estimates, consensus tracking, and the final reservation — while sounding like a reliable friend in the chat.
+LetsPlanIt lives inside your iMessage group chat. It listens silently to every message — picking up cuisine preferences, dietary needs, locations, budgets, and timing — so that when someone finally says `@Agent find us Italian places`, it already knows everything it needs to respond instantly with curated, constraint-checked results.
 
-| Status | Stack | Channels |
-|--------|-------|----------|
-| 🚧 Active Build | Python · FastAPI · Groq | iMessage (Photon SDK) |
-
-<details>
-<summary><strong>Table of Contents</strong></summary>
-
-- [🧭 Overview](#-overview)
-- [💡 Why You'll Love It](#-why-youll-love-it)
-- [🧰 Feature Highlights](#-feature-highlights)
-- [🗂️ Repository Tour](#️-repository-tour)
-- [⚙️ Architecture](#️-architecture)
-- [💬 Conversation Flow](#-conversation-flow)
-- [🚀 Getting Started](#-getting-started)
-- [🎬 Demo Mode](#-demo-mode)
-- [🔧 Tooling & Integrations](#-tooling--integrations)
-- [🧠 State Machine](#-state-machine)
-- [📱 iMessage Bridge](#-imessage-bridge)
-- [🗺️ Roadmap](#️-roadmap)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-
-</details>
+No forms. No apps. Just the chat you're already in.
 
 ---
 
-## 🧭 Overview
+## How It Works
 
-LetsPlanIt joins your existing chat like any other friend. Every message (even without `@Agent`) is silently parsed for cues — cuisines, dietary needs, locations, confirmations, budgets. When someone finally says “`find Italian places @Agent`”, the agent already knows the group preferences and responds instantly with curated options.
+LetsPlanIt runs two parallel loops on every message:
 
-## 💡 Why You'll Love It
+**Silent mode** — every message, even without `@Agent`, is processed by a lightweight LLM that extracts structured signals: what cuisines people want, dietary restrictions, where they're coming from, what time works, how much they want to spend on a ride. These accumulate into a shared session that updates as the conversation evolves.
 
-- **Hands-off planning** — the group keeps chatting casually; the agent handles structure.
-- **Memory that sticks** — dietary needs, favorite cuisines, and location tolerances accumulate over time.
-- **Tool-aware reasoning** — Yelp for candidates, Google Maps for distance checks, Uber estimates, OpenTable booking.
-- **Conversation aware** — references to “option 2” or “that first place” map back to real venues.
-- **Safe automations** — bookings only happen when everyone explicitly confirms.
-
-## 🧰 Feature Highlights
-
-- 🕵️ Silent extraction with `llama-3.1-8b-instant` (preferences, confirmations, timing).
-- 🤖 Active orchestration with `llama-3.3-70b-versatile` + Groq tool calls.
-- 🗺️ Multi-anchor distance validation & Uber fare estimation powered by Google Maps.
-- 🥗 Dietary-aware Yelp search that respects vegetarian/vegan/halal filters.
-- 📅 Google Calendar MCP integration (coming online) for reservation sharing.
-- 🧠 Robust session memory (Redis + Pydantic models) across multiple group chats.
+**Active mode** — when someone tags `@Agent`, the full orchestration model kicks in. It reads the accumulated session state, calls the relevant tools (Yelp search → Google Maps distance validation → Uber estimate), and replies in the chat with ranked results. It tracks which members have confirmed and won't attempt a booking until everyone has explicitly agreed.
 
 ---
 
-## 🗂️ Repository Tour
+## Conversation Flow
 
 ```
-letsPlanIt/
-├── imessage_watcher/            # TypeScript bridge (Photon SDK)
-│   ├── src/
-│   │   ├── imessage.ts          # Watches your Mac’s Messages DB
-│   │   ├── gateway.ts           # Relays inbound/outbound HTTP payloads
-│   │   └── types.ts             # Shared message contracts
-│   └── package.json             # Node runtime config
-│
-├── server/                      # Python backend
-│   ├── main.py                  # FastAPI entry point + webhook
-│   ├── agent/
-│   │   ├── context.py           # Silent extraction pipeline
-│   │   ├── orchestrator.py      # Active agent + tool loop
-│   │   └── triggers.py          # @Agent detection helpers
-│   ├── state/
-│   │   ├── session.py           # Session registry (Redis-compatible)
-│   │   ├── preferences.py       # Merge/update helpers per member
-│   │   └── models.py            # Pydantic data contracts
-│   ├── tools/
-│   │   ├── search_coordinator.py# Yelp → Maps orchestration
-│   │   ├── yelp_tool.py         # Yelp Fusion client
-│   │   ├── maps_tool.py         # Geocoding + distance matrix + Uber math
-│   │   └── calendar_tool.py     # Google Calendar MCP stub
-│   └── demo/                    # Optional CLI demo (no iMessage required)
-│
-├── tests/                       # Pytest suites for every layer
-├── .env.example                 # Environment template
-└── README.md                    # You are here 👋
+Jyot:   lets go out for dinner tonight
+Nidhi:  I want Italian
+Juhi:   Italian sounds good to me             → [silent: cuisine_likes=italian]
+Alisha: can we do Italian? I just had Indian  → [silent: dislikes=indian, likes=italian]
+Jyot:   lets go at 8pm                        → [silent: time=8pm]
+Juhi:   nothing more than 30 mins away please → [silent: location_constraint=30min]
+
+Nidhi:  find us Italian places @Agent  ──────────────────────────────→ ACTIVE
+  ← Planxiety: Here are the top spots for tonight —
+     1. La Scarola · ⭐ 4.5 · $$ · 18 min from you
+     2. Piccolo Sogno · ⭐ 4.4 · $$$ · 24 min
+     3. Monteverde · ⭐ 4.7 · $$$ · 22 min
+     ...
+
+Jyot:   La Scarola works for me
+Nidhi:  same
+Alisha: I'm good with that
+
+Jyot:   are we all good @Agent  ─────────────────────────────────────→ ACTIVE
+  ← Planxiety: Almost — still waiting on Juhi ✋
+
+Juhi:   How much is Uber from River North? @Agent ───────────────────→ ACTIVE
+  ← Planxiety: ~$14–18 from River North to La Scarola (18 min, ~1.3 mi)
+
+Juhi:   works for me
+Jyot:   book it @Agent  ─────────────────────────────────────────────→ ACTIVE
+  ← Planxiety: All four confirmed! Reservation request sent 🎉
 ```
 
 ---
 
-## ⚙️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│               iMessage (Photon SDK Watcher (MAC))        │
-│                    TypeScript Bridge                     │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTP POST /message
-┌────────────────────────▼────────────────────────────────┐
-│                  FastAPI Core Server                     │
-│                                                         │
-│   Message Router → Session Manager (Redis + SQLite)     │
-│                         │                               │
-│              Agent Orchestrator (Groq LLM)              │
-│          llama-3.3-70b  ←→  llama-3.1-8b-instant        │
-│           (active mode)      (silent extraction)        │
-│                         │                               │
-│              ┌──────────▼──────────┐                    │
-│              │   FastMCP Tools      │                    │
-│              │  Yelp · Maps · Uber  │                    │
-│              │  OpenTable           │                    │
-│              └─────────────────────┘                    │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## 💬 Conversation Flow
-
-```
-Group Chat                          LetsPlanIt Agent
-──────────                          ───────────────
-Jyot:  "Guys we should do something tonight!"
-Nidhi: "I don't mind Indian food actually!"
-Juhi:  "Yeah Indian works for me too!"          → [silent extraction: cuisine=indian]
-Alisha:"Actually can we do Italian?             → [silent extraction: dislikes=indian,
-        I just had Indian food :("                 likes=italian]
-Nidhi: "I'm good with Italian"                  → [silent extraction: likes=italian]
-Juhi:  "Yeah let's do it tonight at 8!"         → [silent extraction: time=8pm]
-Nidhi: "find Italian places in Chicago
-        with a chill vibe @Agent"                ──→ ACTIVE MODE (Yelp + Maps)
-Alisha:"I'm vegetarian today, pls only veg @Agent" → filters update + re-search
-Jyot:  "La Italiano works for me"
-Alisha:"Yeah I'm good with that option too"
-Jyot:  "Confirm for us @Agent"                  ──→ needs Juhi + Nidhi ✅
-Nidhi: "Works for me"
-Juhi:  "How much is Uber from Riverwalk? @Agent"→ ride estimate $28
-Juhi:  "Cool, make the reservation @Agent"      ──→ reservation + calendar link 🎉
+┌──────────────────────────────────────────────────┐
+│  iMessage group chat (macOS)                     │
+│  Messages.db  →  Photon/BlueBubbles bridge       │
+│  TypeScript watcher  →  HTTP POST /webhook       │
+└────────────────────────┬─────────────────────────┘
+                         │
+┌────────────────────────▼─────────────────────────┐
+│  FastAPI server                                  │
+│                                                  │
+│  /webhook                                        │
+│    ├── Silent extraction  (llama-3.1-8b-instant) │
+│    │     extracts: cuisine · dietary · location  │
+│    │               timing · budget · confirmations│
+│    │     updates:  in-memory GroupSession        │
+│    │                                             │
+│    └── Active agent  (llama-3.3-70b-versatile)  │
+│          reads: full session XML + message history│
+│          tools: find_venues                      │
+│                 get_uber_estimate                │
+│                 create_group_event               │
+│                                                  │
+│  Session store  (in-memory, per group_id)        │
+└────────────────────────┬─────────────────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+       Yelp Fusion   Google Maps   Groq API
+       (candidates)  (geocode +    (LLM)
+                      distance)
 ```
 
 ---
 
-## 🚀 Getting Started
+## Quick Start
 
 ### Prerequisites
 
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Python | 3.11+ | Backend server |
-| Node.js | 20+ | Photon SDK bridge |
-| Redis | 7+ | Session persistence |
-| BlueBubbles / Photon | Latest | iMessage relay (macOS) |
+| Node.js | 20+ | iMessage bridge |
+| macOS | Any | iMessage access |
+| BlueBubbles or Photon | Latest | iMessage relay |
 
-### 1. Clone & Install
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourname/letsPlanIt
-cd letsPlanIt
+git clone https://github.com/JyotBuch/VetoClub.AI
+cd VetoClub.AI
 
 # Python backend
-cd server
-pip install -r requirements.txt
+pip install -r server/requirements.txt
 
 # TypeScript bridge
-cd ../imessage_watcher
-npm install
+cd imessage_watcher && npm install && cd ..
 ```
 
-### 2. Configure Environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
 ```env
-# .env
+# Required
 GROQ_API_KEY=gsk_...
 YELP_API_KEY=...
 GOOGLE_MAPS_API_KEY=...
-UBER_CLIENT_ID=...
-UBER_CLIENT_SECRET=...
 
-BLUEBUBBLES_URL=http://your-mac-mini:1234
-BLUEBUBBLES_PASSWORD=your_password
+# iMessage bridge — use whichever matches your setup
+PHOTON_WATCHER_URL=http://localhost:3000
+# IMESSAGE_BRIDGE_URL=http://localhost:3000
+# BLUEBUBBLES_URL=http://localhost:3000
 
-REDIS_URL=redis://localhost:6379
+# Optional — override model IDs
+THINKING_MODEL=llama-3.3-70b-versatile
+SMALL_MODEL=llama-3.1-8b-instant
 ```
 
 ### 3. Run
 
 ```bash
-# Start Redis
-docker-compose up -d redis
+# Backend
+uvicorn server.main:app --reload --port 8000
 
-# Start Python backend
-cd server && uvicorn main:app --reload --port 8000
-
-# Start TypeScript bridge
+# iMessage bridge (separate terminal)
 cd imessage_watcher && npm run dev
 ```
 
-### 4. Try the Demo (optional)
+### 4. Test without iMessage
 
 ```bash
-pip install rich
-python server/demo/demo.py
+python test.py
 ```
 
----
-
-## 🎬 Demo Mode
-
-> `demo/demo.py` simulates the full Chicago dinner planning scenario end-to-end in your terminal. All external calls are mocked so you can watch the experience without real API keys or iMessage.
-
-*(Script excerpt omitted here for brevity — open `server/demo/demo.py` to view the full walkthrough.)*
+This runs a full seeded demo session (venue search → group confirmation → booking) entirely in your terminal, using real Yelp + Maps API calls.
 
 ---
 
-## 🔧 Tooling & Integrations
+## Tools
 
-| Tool | API | Purpose |
-|------|-----|---------|
-| `find_venues` | Yelp + Google Maps | Combine restaurant search with constraint validation |
-| `get_uber_estimate` | Google Maps data | Estimate fares based on distance + budget caps |
-| `create_group_event` | Google Calendar MCP | Share booking details back with the group |
-
-> More MCP endpoints (OpenTable, flight/hotel search) are stubbed and ready for expansion.
+| Tool | APIs | What it does |
+|------|------|--------------|
+| `find_venues` | Yelp Fusion + Google Maps | Searches restaurants by cuisine and dietary filters, then validates each candidate against every member's travel-time constraint. Returns up to 5 ranked results. |
+| `get_uber_estimate` | Google Maps | Geocodes a pickup address, calculates distance to the venue, and returns a fare range. Flags if the estimate exceeds the group's stated budget cap. |
+| `create_group_event` | — | Stub. Wires into the booking confirmation flow; full calendar integration coming. |
 
 ---
 
-## 🧠 State Machine
+## Session State
+
+Every group chat gets its own `GroupSession`. State accumulates silently and is used as context on every active agent call.
+
+| Field | Set by | Used for |
+|-------|--------|---------|
+| `members` | Silent extraction | Dietary, cuisine preferences, per-member confirmation |
+| `cuisine` | Silent extraction (majority vote) | Yelp search query |
+| `dietary_filters` | Silent extraction | Yelp attribute filters |
+| `location_constraints` | Silent extraction | Per-member max travel time (Google Maps validation) |
+| `time` | Silent extraction | Event time; passed to calendar tool |
+| `venue_options` | `find_venues` tool | Numbered list shown to group |
+| `selected_venue` | State resolver | Set when members refer to a venue by name or number |
+| `state` | Orchestrator | `idle → awaiting_confirmation → booked` |
+
+The agent **will not book** until `all_confirmed()` returns true — every member in `members` has `venue_confirmed=True`.
+
+---
+
+## State Flow
 
 ```
 idle
- └─► gathering          ← first "we should do X" message
-      └─► searching     ← @Agent invoked with a task
-           └─► awaiting_confirmation   ← results shown to group
-                └─► booking           ← all members venue-confirmed
-                     └─► booked ──────────────────────► idle
-```
-
-The agent **never books** until every member has `venue_confirmed=true`. If someone hasn't responded, the agent surfaces it — *"still waiting to hear from Juhi & Nidhi"* — and holds.
-
----
-
-## 🔧 Agent Modes
-
-### Silent Mode *(always on)*
-- Every incoming message is passed through `llama-3.1-8b-instant` for lightweight structured extraction.
-- Extracts dietary preferences, cuisine likes/dislikes, locations, confirmations, time hints.
-- No responses are sent; the session state updates quietly in the background.
-
-### Active Mode *(triggered by `@Agent`)*
-- Full `llama-3.3-70b-versatile` reasoning with Groq tool access.
-- Handles Yelp search, Google Maps validation, Uber estimates, calendar events.
-- Maintains option indices so references like "option 2" map back to saved venues.
-
----
-
-## 📦 Dependencies
-
-**Python** (`server/requirements.txt`)
-```
-fastapi
-uvicorn
-groq
-fastmcp
-sqlmodel
-redis
-pydantic
-httpx
-rich
-```
-
-**TypeScript** (`imessage_watcher/package.json`)
-```json
-{
-  "dependencies": {
-    "photon-sdk": "latest",
-    "axios": "^1.6.0",
-    "typescript": "^5.0.0"
-  }
-}
+ └─► (messages accumulate silently)
+      └─► awaiting_confirmation   ← find_venues returns results
+           └─► booked             ← all members confirmed + booking succeeds
 ```
 
 ---
 
-## 📱 iMessage Bridge
+## Environment Variables Reference
 
-The watcher (in `imessage_watcher/`) listens to your macOS Messages DB through Photon SDK, forwards inbound messages to `POST /webhook`, and exposes `POST /imessage/send` for responses.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | Yes | Groq API key for both LLM models |
+| `YELP_API_KEY` | Yes | Yelp Fusion API key |
+| `GOOGLE_MAPS_API_KEY` | Yes | Google Maps Geocoding + Distance Matrix |
+| `PHOTON_WATCHER_URL` | Yes* | URL of the iMessage bridge |
+| `THINKING_MODEL` | No | Active agent model (default: `llama-3.3-70b-versatile`) |
+| `SMALL_MODEL` | No | Extraction model (default: `llama-3.1-8b-instant`) |
 
-1. **Start the watcher (Mac only)**
-   ```bash
-   cd imessage_watcher
-   npm install
-   npm run start
-   ```
-2. **Point FastAPI at the watcher**
-   ```env
-   PHOTON_WATCHER_URL=http://localhost:3000
-   PHOTON_SHARED_SECRET=your_secret
-   ```
-3. **Verify the loop** — send a test message; you should receive an `[ECHO]` reply within seconds. Once this echo flow works, swap in the real agent webhook.
+*Or set `IMESSAGE_BRIDGE_URL` / `BLUEBUBBLES_URL` — all three are checked.
 
 ---
 
-## 🗺️ Roadmap
+## Project Structure
 
-- [ ] Core agent + silent extraction pipeline
-- [ ] Yelp + Maps MCP tools
-- [ ] Uber fare estimation
-- [ ] Google Calendar booking + share links
-- [ ] BlueBubbles / Photon bridge
-- [ ] Redis session persistence + SQLite preference store
-- [ ] Multi-group support
-- [ ] Web dashboard for viewing group preference history
-- [ ] Flight + hotel fetching *(slope feature)*
-- [ ] Google Scraper / web automation for venues without APIs
+```
+VetoClub.AI/
+├── server/
+│   ├── main.py                  # FastAPI app — /webhook, /state endpoints
+│   ├── config.py                # Model + env config
+│   ├── agent/
+│   │   ├── orchestrator.py      # Active agent, tool loop, system prompts
+│   │   ├── context.py           # Silent extraction pipeline
+│   │   ├── resolver.py          # Full-history state reconciliation
+│   │   ├── session_utils.py     # Session → XML serialization for LLM context
+│   │   └── triggers.py          # @Agent detection and stripping
+│   ├── state/
+│   │   ├── models.py            # GroupSession, MemberPreference, VenueOption
+│   │   ├── session.py           # In-memory session store
+│   │   └── preferences.py       # Member preference merge helpers
+│   └── tools/
+│       ├── search_coordinator.py# Yelp → Maps pipeline
+│       ├── yelp_tool.py         # Yelp Fusion REST client
+│       ├── maps_tool.py         # Geocode, distance matrix, fare estimation
+│       └── calendar_tool.py     # Booking stub
+├── imessage_watcher/            # TypeScript bridge (Photon/BlueBubbles)
+├── tests/                       # Pytest — state, extraction, orchestrator, tools
+├── test.py                      # End-to-end integration demo
+└── .env.example
+```
 
 ---
 
-## 🤝 Contributing
+## Roadmap
 
-Ideas, bug reports, and PRs are welcome! Please run formatting (`ruff`, `black`) and tests (`python -m pytest`) before opening a pull request.
+- [x] Silent preference extraction
+- [x] Active agent with Yelp + Maps tool loop
+- [x] Multi-member location constraint validation
+- [x] Uber fare estimation
+- [x] Consensus tracking (won't book until all confirmed)
+- [ ] Redis session persistence (survives server restarts)
+- [ ] Google Calendar booking
+- [ ] Web dashboard for group preference history
+- [ ] OpenTable / Resy reservation API
 
-## 📄 License
+---
+
+## Contributing
+
+Run tests before opening a PR:
+
+```bash
+python -m pytest tests/
+```
+
+Bug reports and ideas welcome via [GitHub Issues](https://github.com/JyotBuch/VetoClub.AI/issues).
+
+---
+
+## License
 
 MIT
