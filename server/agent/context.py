@@ -218,12 +218,26 @@ async def extract_and_merge(msg: Dict[str, Any], session: GroupSession) -> Group
         session.time = time_value
     constraint_data = extracted.get("location_constraint")
     if constraint_data:
-        new_constraint = LocationConstraint(
-            member=sender,
-            location=constraint_data["location"],
-            max_distance_mins=constraint_data.get("max_distance_mins", 30),
-        )
-        session.location_constraints.append(new_constraint)
+        # Check if this sender already has a constraint and update it
+        existing_constraint = None
+        for constraint in session.location_constraints:
+            if constraint.member == sender:
+                existing_constraint = constraint
+                break
+        
+        if existing_constraint:
+            # Update existing constraint
+            existing_constraint.location = constraint_data["location"]
+            existing_constraint.max_distance_mins = constraint_data.get("max_distance_mins", 30)
+        else:
+            # Add new constraint
+            new_constraint = LocationConstraint(
+                member=sender,
+                location=constraint_data["location"],
+                max_distance_mins=constraint_data.get("max_distance_mins", 30),
+            )
+            session.location_constraints.append(new_constraint)
+        
         if not session.location_anchor and session.location_constraints:
             session.location_anchor = session.location_constraints[0].location
 

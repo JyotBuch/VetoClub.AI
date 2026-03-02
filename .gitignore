@@ -31,7 +31,10 @@ htmlcov/
 .dmypy.json
 .pyre/
 scripts
-*.json
+# Only ignore test/output JSON files, not package.json or tsconfig.json
+test*.json
+coverage*.json
+.eslintcache.json
 tests/
 test/
 

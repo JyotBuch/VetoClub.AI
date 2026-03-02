@@ -195,7 +195,8 @@ def _apply_snapshot(session: GroupSession, snapshot: Dict[str, Any]) -> GroupSes
         except ValueError:
             pass
 
-    constraints = snapshot.get("location_constraints", [])
+    session_data = snapshot.get("session", {})
+    constraints = session_data.get("location_constraints", [])
     existing = {c.member: c for c in session.location_constraints}
     for constraint in constraints:
         member = constraint.get("member")

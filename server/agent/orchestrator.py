@@ -29,14 +29,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_venues",
-            "description": "Search for restaurants matching group cuisine, dietary needs, vibe, and all member location constraints. Call this when asked to find places.",
+            "description": "Search for restaurants matching group cuisine, dietary needs, and all member location constraints. Call this when asked to find places.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "cuisine": {"type": "string", "description": "e.g. 'italian', 'thai'"},
-                    "vibe": {"type": "string", "description": "e.g. 'chill dinner', 'upscale'"},
                     "dietary_filters": {"type": "array", "items": {"type": "string"}},
-                    "party_size": {"type": "integer"},
                     "location_constraints": {
                         "type": "array",
                         "items": {
@@ -50,7 +48,7 @@ TOOLS = [
                         },
                     },
                 },
-                "required": ["cuisine", "party_size", "location_constraints"],
+                "required": ["cuisine", "location_constraints"],
             },
         },
     },
@@ -135,7 +133,6 @@ TOOLS = [
 #   - cuisine from session
 #   - all location_constraints from session (never drop any member's constraint)
 #   - dietary_filters from session
-#   - party_size = number of members in session
 # - Present venue results as a numbered list 1–5 with name, rating, price, distance, and one-line vibe description. Members will refer to options by number or name in follow-up messages.
 # - If SearchResult.constraints_met is false, lead with the conflict_reason before showing any results. Never silently drop a member's constraint.
 # - Call get_uber_estimate only when a specific member asks about their fare. Use their member.location as pickup. Always mention if estimate exceeds budget_cap. Always include the \"Estimate based on distance\" note in your reply.
@@ -225,7 +222,7 @@ Booked:
 [calendar url]"
 
 ## Tool rules
-- Call find_venues when asked to search. Always pass cuisine, all location_constraints, dietary_filters, and party_size from session. Never drop a member's constraint.
+- Call find_venues when asked to search. Always pass cuisine, all location_constraints, and dietary_filters from session. Never drop a member's constraint.
 - If SearchResult.constraints_met is false, lead with the conflict before showing results.
 - Call get_uber_estimate only when a member explicitly asks about their fare. Always include the distance-estimate disclaimer.
 - Call create_group_event only when can_book is true. Never speculatively.
@@ -254,11 +251,17 @@ async def execute_tool(name: str, arguments: str, session: GroupSession) -> Tupl
         return {"error": "Invalid tool arguments"}, session
 
     if name == "find_venues":
-        result = await find_venues(**args)
-        session.venue_options = result.venues
-        if result.venues:
-            session.state = "awaiting_confirmation"
-        return result.model_dump(), session
+        # Whitelist only expected parameters for find_venues
+        allowed_params = {"cuisine", "location_constraints", "dietary_filters"}
+        filtered_args = {k: v for k, v in args.items() if k in allowed_params}
+        try:
+            result = await find_venues(**filtered_args)
+            session.venue_options = result.venues
+            if result.venues:
+                session.state = "awaiting_confirmation"
+            return result.model_dump(), session
+        except TypeError as exc:
+            return {"error": f"Invalid parameters for find_venues: {exc}"}, session
 
     if name == "get_uber_estimate":
         pickup = args.get("pickup_location")
@@ -281,7 +284,34 @@ async def execute_tool(name: str, arguments: str, session: GroupSession) -> Tupl
         return result, session
 
     if name == "create_group_event":
-        result = await create_group_event(**args)
+        coerced_args = dict(args)
+
+        party_size = coerced_args.get("party_size")
+        if isinstance(party_size, str):
+            try:
+                coerced_args["party_size"] = int(party_size)
+            except ValueError:
+                coerced_args["party_size"] = max(len(session.members), 1)
+        elif not isinstance(party_size, int) or party_size is None:
+            coerced_args["party_size"] = max(len(session.members), 1)
+
+        dietary_notes = coerced_args.get("dietary_notes")
+        if isinstance(dietary_notes, str):
+            try:
+                parsed = json.loads(dietary_notes)
+                if isinstance(parsed, list):
+                    coerced_args["dietary_notes"] = [str(item) for item in parsed]
+                else:
+                    coerced_args["dietary_notes"] = [str(parsed)]
+            except json.JSONDecodeError:
+                coerced_args["dietary_notes"] = [dietary_notes]
+        elif dietary_notes is None:
+            coerced_args["dietary_notes"] = list(session.dietary_filters)
+
+        if not coerced_args.get("group_id"):
+            coerced_args["group_id"] = session.group_id
+
+        result = await create_group_event(**coerced_args)
         if result.get("event_id"):
             session.calendar_event_id = result.get("event_id")
             session.calendar_event_url = result.get("event_url")

@@ -35,8 +35,6 @@ async def find_venues(
     cuisine: str,
     location_constraints: Sequence[LocationConstraint | dict],
     dietary_filters: List[str],
-    party_size: int,
-    vibe: str = "chill dinner",
 ) -> SearchResult:
     """Search Yelp and validate against Google Maps constraints."""
 
@@ -44,11 +42,7 @@ async def find_venues(
     if not normalized_constraints:
         return SearchResult(venues=[], constraints_met=False, conflict_reason="No location constraints provided")
 
-    location_constraints = normalized_constraints
-    if not location_constraints:
-        return SearchResult(venues=[], constraints_met=False, conflict_reason="No location constraints provided")
-
-    anchor_location = location_constraints[0].location
+    anchor_location = normalized_constraints[0].location
     candidates = await search_yelp_candidates(cuisine, anchor_location, dietary_filters, limit=20)
     if not candidates:
         cuisine_label = cuisine or ""
@@ -56,7 +50,7 @@ async def find_venues(
         reason = f"No {cuisine_phrase.strip() or 'restaurant'} restaurants found in {anchor_location}"
         return SearchResult(venues=[], constraints_met=False, conflict_reason=reason)
 
-    result = await validate_and_rank_venues(candidates, location_constraints)
+    result = await validate_and_rank_venues(candidates, normalized_constraints)
     if len(result.venues) > 5:
         result.venues = result.venues[:5]
     return result
